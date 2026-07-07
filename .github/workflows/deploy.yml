@@ -23,7 +23,7 @@ jobs:
 
       - name: Sync PySpark Code to Live Production Notebooks
         env:
-          DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
+          DATABRICKS_HOST: https://dbc-7ac681c6-384b.cloud.databricks.com
           DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
         run: |
           echo "Connecting securely to Databricks..."
@@ -35,6 +35,7 @@ jobs:
           databricks workspace import /Users/mayankgodara87@gmail.com/03_gold_layer_v2 --file 03_gold_layer_v2.py --language PYTHON --overwrite
           
           echo "Live Production Code Sync is 100% Complete!"
+
       - name: Execute Metadata DB Updates
         env:
           DATABRICKS_HOST: https://dbc-7ac681c6-384b.cloud.databricks.com
