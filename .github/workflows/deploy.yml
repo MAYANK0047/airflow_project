@@ -31,7 +31,7 @@ jobs:
           # Forcefully upload Silver Layer
           databricks workspace import /Users/mayankgodara87@gmail.com/02_silver_cleansing_v2 --file 02_silver_cleansing_v2.py --language PYTHON --overwrite
           
-          # Forcefully upload Gold Layer (Notice the missing .py here to match your repo!)
+          # Forcefully upload Gold Layer
           databricks workspace import /Users/mayankgodara87@gmail.com/03_gold_layer_v2 --file 03_gold_layer_v2.py --language PYTHON --overwrite
           
           echo "Live Production Code Sync is 100% Complete!"
@@ -42,4 +42,5 @@ jobs:
           DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
         run: |
           echo "Executing version-controlled SQL update script..."
+          # Note: Ensure metadata_admin folder exists in root and contains the SQL file
           databricks statement-execution execute-statement "c00b24f41bdae4c7" --statement "$(cat metadata_admin/change_scd_strategy.sql)" --wait
