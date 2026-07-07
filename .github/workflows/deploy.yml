@@ -38,3 +38,10 @@ jobs:
           databricks workspace import -l PYTHON -o 03_gold_layer_v2 /Users/mayankgodara87@gmail.com/03_gold_layer_v2
           
           echo "Live Production Code Sync is 100% Complete!"
+      - name: Execute Metadata DB Updates
+        env:
+          DATABRICKS_HOST: https://dbc-7ac681c6-384b.cloud.databricks.com
+          DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
+        run: |
+          echo "Executing version-controlled SQL update script..."
+          databricks statement-execution execute-statement "c00b24f41bdae4c7" --statement "$(cat metadata_admin/change_scd_strategy.sql)" --wait
