@@ -19,7 +19,7 @@ jobs:
           python-version: '3.10'
 
       - name: Install Databricks CLI
-        run: curl -fsSL https://raw.githubusercontent.com/databricks/setup-cli/main/setup.sh | sh
+        uses: databricks/setup-cli@main
 
       - name: Sync PySpark Code to Live Production Notebooks
         env:
