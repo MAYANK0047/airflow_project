@@ -1,1 +1,5 @@
 airflow_env/
+# Ignore temporary SQL exploration scripts and SQLTools sessions
+Exploration/
+*.session.sql
+.vscode/
