@@ -42,5 +42,10 @@ jobs:
           DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
         run: |
           echo "Executing version-controlled SQL update script..."
-          # Use the modern CLI command and ensure we reference the file correctly
-          databricks query-execution execute --sql "$(cat metadata_admin/change_scd_strategy.sql)" --warehouse-id c00b24f41bdae4c7
+          
+          # Safely package the SQL script into a JSON format
+          jq -n --arg query "$(cat metadata_admin/change_scd_strategy.sql)" \
+            '{warehouse_id: "c00b24f41bdae4c7", statement: $query, wait_timeout: "30s"}' > payload.json
+            
+          # Execute the SQL directly through the Databricks REST API
+          databricks api post /api/2.0/sql/statements --json @payload.json
