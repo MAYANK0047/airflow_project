@@ -1,7 +1,7 @@
 import os
 from datetime import datetime
 from pyspark.sql.functions import current_timestamp, lit, col
-
+#Checking if the updating system works 
 # ====================================================================
 # 1. THE DELTA CONTROL ENGINE & CONFIGURATION (V2)
 # ====================================================================
