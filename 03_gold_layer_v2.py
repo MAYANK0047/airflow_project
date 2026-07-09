@@ -31,17 +31,47 @@ df_config = spark.read.table("workspace.default.pipeline_configuration_v2") \
 
 tables_config = [row.asDict(recursive=True) for row in df_config.collect()]
 
+# --- THE FIX: Pre-scan Silver Data for Graceful Exit ---
+active_tables_with_data = []
+for rules in tables_config:
+    target_name = rules.get('target_table')
+    if path_exists(f"{silver_zone}{target_name}/"):
+        active_tables_with_data.append(rules)
+
+# If no Silver data exists for ANY table, exit gracefully
+if not active_tables_with_data:
+    print("No upstream Silver data exists for any active configuration. Pipeline standing by.")
+    
+    start_time_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    
+    # Ensure table exists (defensive programming)
+    spark.sql(f"""
+        CREATE TABLE IF NOT EXISTS {audit_table} (
+            table_name STRING, layer STRING, start_time TIMESTAMP, 
+            end_time TIMESTAMP, duration_seconds DOUBLE, 
+            rows_processed LONG, status STRING, error_message STRING
+        )
+    """)
+    
+    spark.sql(f"""
+        INSERT INTO {audit_table} VALUES (
+            'ALL_TARGETS', 'Gold_V2', '{start_time_str}', 
+            '{start_time_str}', 0.0, 
+            0, 'SKIPPED_NO_FILES', 'None'
+        )
+    """)
+    
+    # Force the notebook to stop gracefully and flag as SUCCESS
+    dbutils.notebook.exit("SKIP_PIPELINE")
+
 # ====================================================================
 # 2. V2 GOLD PROCESSING ENGINE
 # ====================================================================
-for rules in tables_config:
+# We now loop over active_tables_with_data instead of tables_config
+for rules in active_tables_with_data:
     target_name = rules.get('target_table')
     silver_path = f"{silver_zone}{target_name}/"
     gold_path = f"{gold_zone}{target_name}/"
-    
-    if not path_exists(silver_path):
-        print(f"--- Skipping {target_name}: No upstream Silver data exists yet ---")
-        continue
     
     print(f"\n--- Constructing Gold Table: {target_name} ---")
     

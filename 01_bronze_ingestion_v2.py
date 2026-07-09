@@ -38,7 +38,27 @@ except Exception as e:
     landing_files = []
 
 if not landing_files:
-    print("No files detected in V2 Landing Zone. Pipeline standing by.")
+    print("No files exists in V2 Landing Zone. Pipeline standing by.")
+    
+    # 1. Log the execution to the Audit Table to prove the job ran securely
+    start_time_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    spark.sql(f"""
+        CREATE TABLE IF NOT EXISTS {audit_table} (
+            table_name STRING, layer STRING, start_time TIMESTAMP, 
+            end_time TIMESTAMP, duration_seconds DOUBLE, 
+            rows_processed LONG, status STRING, error_message STRING
+        )
+    """)
+    spark.sql(f"""
+        INSERT INTO {audit_table} VALUES (
+            'ALL_TARGETS', 'Bronze_V2', '{start_time_str}', 
+            '{start_time_str}', 0.0, 
+            0, 'SKIPPED_NO_FILES', 'None'
+        )
+    """)
+    
+    # 2. Force the notebook to stop gracefully and flag as SUCCESS in Airflow
+    dbutils.notebook.exit("SKIP_PIPELINE")
 
 # ====================================================================
 # 2. V2 BRONZE PROCESSING ENGINE
@@ -71,7 +91,6 @@ for table_rules in tables_config:
             if file_extension == "csv":
                 df_raw = spark.read.format("csv").option("header", "true").option("inferSchema", "true").load(uc_source_path)
             
-
             elif file_extension == "json":
                 df_raw = (
                     spark.read

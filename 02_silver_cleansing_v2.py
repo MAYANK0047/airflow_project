@@ -1,3 +1,4 @@
+import os
 from datetime import datetime
 from pyspark.sql import Window
 from pyspark.sql.functions import col, current_timestamp, lit, row_number
@@ -27,25 +28,55 @@ df_config = spark.read.table("workspace.default.pipeline_configuration_v2") \
 
 tables_config = [row.asDict(recursive=True) for row in df_config.collect()]
 
+# --- THE FIX: Pre-scan Bronze Data for Graceful Exit ---
+active_tables_with_data = []
+for rules in tables_config:
+    target_name = rules.get('target_table')
+    if path_exists(f"{bronze_archive}{target_name}/"):
+        active_tables_with_data.append(rules)
+
+# If no Bronze data exists for ANY table, exit gracefully
+if not active_tables_with_data:
+    print("No Bronze data exists for any active configuration. Pipeline standing by.")
+    
+    start_time_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    
+    # Ensure table exists (defensive programming)
+    spark.sql(f"""
+        CREATE TABLE IF NOT EXISTS {audit_table} (
+            table_name STRING, layer STRING, start_time TIMESTAMP, 
+            end_time TIMESTAMP, duration_seconds DOUBLE, 
+            rows_processed LONG, status STRING, error_message STRING
+        )
+    """)
+    
+    spark.sql(f"""
+        INSERT INTO {audit_table} VALUES (
+            'ALL_TARGETS', 'Silver_V2', '{start_time_str}', 
+            '{start_time_str}', 0.0, 
+            0, 'SKIPPED_NO_FILES', 'None'
+        )
+    """)
+    
+    # Force the notebook to stop gracefully and flag as SUCCESS
+    dbutils.notebook.exit("SKIP_PIPELINE")
+
 # ====================================================================
 # 2. V2 SILVER PROCESSING ENGINE
 # ====================================================================
-for rules in tables_config:
+# We now loop over active_tables_with_data instead of tables_config
+for rules in active_tables_with_data:
     target_name = rules.get('target_table')
     bronze_path = f"{bronze_archive}{target_name}/"
     silver_target_path = f"{silver_zone}{target_name}/"
     quarantine_target_path = f"{quarantine_zone}{target_name}/"
-    
-    if not path_exists(bronze_path):
-        print(f"--- Skipping {target_name}: No Bronze data exists ---")
-        continue
 
     print(f"\n--- Running Cleansing Gate for: {target_name} ---")
     start_time = datetime.now()
     status, error_message, rows_processed = "Failed", "None", 0
     
     try:
-        # THE FIX: Enable automatic schema merging for multi-format Parquet files
+        # Enable automatic schema merging for multi-format Parquet files
         df_bronze = spark.read.option("mergeSchema", "true").parquet(bronze_path)
 
         # A. COLUMN STANDARDIZATION
@@ -93,6 +124,15 @@ for rules in tables_config:
         end_time = datetime.now()
         duration = (end_time - start_time).total_seconds()
         clean_err = error_message.replace("'", "''")
+        
+        # Ensure audit table exists here as well
+        spark.sql(f"""
+            CREATE TABLE IF NOT EXISTS {audit_table} (
+                table_name STRING, layer STRING, start_time TIMESTAMP, 
+                end_time TIMESTAMP, duration_seconds DOUBLE, 
+                rows_processed LONG, status STRING, error_message STRING
+            )
+        """)
         
         spark.sql(f"""
             INSERT INTO {audit_table} VALUES (
