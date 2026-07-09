@@ -28,38 +28,41 @@ df_config = spark.read.table("workspace.default.pipeline_configuration_v2") \
 
 tables_config = [row.asDict(recursive=True) for row in df_config.collect()]
 
-# --- THE FIX: Pre-scan Bronze Data for Graceful Exit ---
-active_tables_with_data = []
-for rules in tables_config:
-    target_name = rules.get('target_table')
-    if path_exists(f"{bronze_archive}{target_name}/"):
-        active_tables_with_data.append(rules)
+# --- THE FIX: Smart Audit-Based Cascading Skip ---
+try:
+    # Query the audit table to see what Bronze just did
+    df_last_bronze = spark.sql(f"""
+        SELECT status 
+        FROM {audit_table} 
+        WHERE layer = 'Bronze_V2' 
+        ORDER BY end_time DESC 
+        LIMIT 1
+    """)
+    
+    if df_last_bronze.count() > 0:
+        last_status = df_last_bronze.collect()[0]["status"]
+        
+        if last_status == 'SKIPPED_NO_FILES':
+            print("Detected Bronze layer skipped (No new files). Silver standing by.")
+            
+            start_time_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            
+            spark.sql(f"""
+                INSERT INTO {audit_table} VALUES (
+                    'ALL_TARGETS', 'Silver_V2', '{start_time_str}', 
+                    '{start_time_str}', 0.0, 
+                    0, 'SKIPPED_NO_FILES', 'None'
+                )
+            """)
+            
+            # Exit immediately, saving compute
+            dbutils.notebook.exit("SKIP_PIPELINE")
 
-# If no Bronze data exists for ANY table, exit gracefully
-if not active_tables_with_data:
-    print("No Bronze data exists for any active configuration. Pipeline standing by.")
-    
-    start_time_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-    
-    # Ensure table exists (defensive programming)
-    spark.sql(f"""
-        CREATE TABLE IF NOT EXISTS {audit_table} (
-            table_name STRING, layer STRING, start_time TIMESTAMP, 
-            end_time TIMESTAMP, duration_seconds DOUBLE, 
-            rows_processed LONG, status STRING, error_message STRING
-        )
-    """)
-    
-    spark.sql(f"""
-        INSERT INTO {audit_table} VALUES (
-            'ALL_TARGETS', 'Silver_V2', '{start_time_str}', 
-            '{start_time_str}', 0.0, 
-            0, 'SKIPPED_NO_FILES', 'None'
-        )
-    """)
-    
-    # Force the notebook to stop gracefully and flag as SUCCESS
-    dbutils.notebook.exit("SKIP_PIPELINE")
+except Exception as e:
+    print("Audit table check failed or table missing. Proceeding with run.")
+
+# Set up active tables for processing if we didn't exit
+active_tables_with_data = tables_config
 
 # ====================================================================
 # 2. V2 SILVER PROCESSING ENGINE
